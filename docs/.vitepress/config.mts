@@ -127,7 +127,6 @@ export default defineConfig({
     ],
 
     sidebar: [
-      { text: 'Home', link: '/home' },
       {
         text: 'About',
         collapsed: true,
@@ -760,12 +759,6 @@ export default defineConfig({
     resolve: {
       alias: [
         {
-          find: /^.*\/VPHero\.vue$/,
-          replacement: fileURLToPath(
-            new URL('./theme/components/Landing/HeroHeader.vue', import.meta.url)
-          )
-        },
-        {
           find: /^.*\/VPBadge\.vue$/,
           replacement: fileURLToPath(
             new URL('./theme/components/VPBadge.vue', import.meta.url)
@@ -783,18 +776,7 @@ export default defineConfig({
             new URL('./theme/components/VPSidebar.vue', import.meta.url)
           )
         },
-        {
-          find: /^.*\/VPFeatures\.vue$/,
-          replacement: fileURLToPath(
-            new URL('./theme/components/VPFeatures.vue', import.meta.url)
-          )
-        },
-        {
-          find: /^.*\/VPFeature\.vue$/,
-          replacement: fileURLToPath(
-            new URL('./theme/components/VPFeature.vue', import.meta.url)
-          )
-        },
+
         {
           find: /^.*\/VPLocalNav\.vue$/,
           replacement: fileURLToPath(
