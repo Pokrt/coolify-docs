@@ -1,6 +1,6 @@
 ---
 title: "Docker Compose"
-description: "Deploy multi-container Docker Compose stacks in Coolify with magic environment variables, persistent storage, healthchecks, and predefined network connections."
+description: "Deploy multi-container Docker Compose stacks in Coolify with magic environment variables, persistent storage, healthchecks, custom networks, and predefined network connections."
 ---
 
 # Docker Compose
@@ -68,7 +68,117 @@ services:
 
 Then you can connect from `backend` to `auth` by referring to it as `http://auth:1234` (or whatever port.) Likewise, `auth` can connect to `backend` by referring to `http://backend:3000` (or whatever port.)
 
-For further details, please refer to the [Docker Networking in Compose](https://docs.docker.com/compose/how-tos/networking/) docs.
+For further details, please refer to the [Docker Networking in Compose](https://docs.docker.com/compose/how-tos/networking/?utm_source=coolify.io) docs.
+
+## Networking
+
+This section covers Docker Compose networking concepts as they apply to Coolify deployments — from the default network created per stack, to custom topologies, aliases, and connecting to external networks.
+
+### Default Network Behavior
+
+When Coolify deploys a Docker Compose stack, it automatically creates a dedicated **bridge network** named after your resource's UUID (e.g., `abcdefg`). All services in the stack are automatically attached to this network, meaning they can reach each other by using the service name as the hostname.
+
+Coolify also joins the **proxy service** (Traefik) to this network so that it can route external traffic to your services based on domains you assign in the UI.
+
+```yaml
+services:
+  backend:
+    image: your-backend:latest   # reachable from other services as "backend"
+  redis:
+    image: redis:latest          # reachable from other services as "redis"
+```
+
+::: info
+You do not need to declare a `networks` block for basic intra-stack communication. Services within the same stack can always reach each other by service name.
+:::
+
+### Custom Networks
+
+You can define additional networks in your compose file to control which services can communicate with each other. This is useful for network segmentation — for example, isolating your database from services that should not access it directly.
+
+::: info
+When no `driver` is specified, Docker defaults to the `bridge` driver for user-defined networks.
+:::
+
+```yaml
+networks:
+  frontend:
+  backend:
+
+services:
+  proxy:
+    image: nginx:latest
+    networks:
+      - frontend
+  app:
+    image: your-app:latest
+    networks:
+      - frontend
+      - backend
+  db:
+    image: postgres:latest
+    networks:
+      - backend
+```
+
+In this example, `proxy` can reach `app`, `app` can reach both `proxy` and `db`, but `proxy` cannot directly reach `db`.
+
+::: warning
+When using custom networks, ensure the service that should receive external traffic (via the proxy) is connected to the network that Coolify's proxy has access to. If in doubt, also attach it to the `default` network or assign it a domain in the Coolify UI.
+:::
+
+### Network Aliases
+
+Network aliases let you give a service an additional hostname within a specific network. This is useful when another service expects to reach a dependency under a specific name that differs from the service name in your compose file.
+
+```yaml
+services:
+  database:
+    image: postgres:latest
+    networks:
+      default:
+        aliases:
+          - postgres
+          - db
+```
+
+With this configuration, other services can connect to the database container using `database`, `postgres`, or `db` as the hostname.
+
+### External Networks
+
+If you need to connect your services to a pre-existing Docker network (one that was created outside Coolify or outside this compose stack), declare it as `external`:
+
+```yaml
+networks:
+  my-shared-network:
+    external: true
+
+services:
+  app:
+    image: your-app:latest
+    networks:
+      - my-shared-network
+```
+
+Compose will not attempt to create `my-shared-network` — it expects the network to already exist on the Docker host.
+
+Coolify's proxy (Traefik) runs on a network called `coolify`. If you are using a [Raw Compose Deployment](#raw-docker-compose-deployment) and need to configure Traefik labels manually, you can connect your service to this network:
+
+```yaml
+networks:
+  coolify:
+    external: true
+
+services:
+  app:
+    image: your-app:latest
+    networks:
+      - coolify
+    labels:
+      - traefik.enable=true
+      - "traefik.http.routers.my-app.rule=Host(`example.com`)"
+      - traefik.http.routers.my-app.entryPoints=http
+```
 
 ## Defining Environment Variables
 
@@ -306,6 +416,35 @@ To do this you need to enable `Connect to Predefined Network` option on your `Se
 Here is an example. You have a stack with a `postgres` database and a `laravel` application. Coolify will rename your `postgres` stack to `postgres-<uuid>` and your `laravel` stack to `laravel-<uuid>` to prevent name collisions.
 
 If you set `Connect to Predefined Network` option on your `laravel` stack, your `laravel` application will be able to connect to your `postgres` database, but you need to use the `postgres-<uuid>` as your database host.
+
+::: tip
+You can find the UUID of a resource in the Coolify UI on the resource's settings page, or from the URL when viewing the resource.
+:::
+
+### Manually Declaring a Cross-Stack Network
+
+As an alternative to using the `Connect to Predefined Network` toggle, you can declare the other stack's network as an `external` network in your compose file. This gives you explicit, per-service control over which containers can talk to which stacks.
+
+First, identify the network name of the other stack. Coolify names it after the resource UUID, so you can find it by running `docker network ls` on your server, or by checking the resource's settings page in the Coolify UI. Then declare it as an external network in your own compose file:
+
+```yaml
+networks:
+  postgres-uuid:          # the network name of your database stack
+    external: true
+
+services:
+  laravel:
+    image: your-laravel-app:latest
+    networks:
+      - default            # stay on your own stack's default network
+      - postgres-uuid      # also join the database stack's network
+    environment:
+      - DB_HOST=postgres-uuid   # use the renamed service name as the host
+```
+
+::: warning
+When a container joins multiple networks, service-name DNS resolution is scoped to each network. Use the full `<service-name>-<uuid>` hostname when referencing services from a different stack.
+:::
 
 ## Raw Docker Compose Deployment
 
